@@ -101,8 +101,20 @@ def webhook():
         print("НОВЫЙ ЛИД:")
         print(user)
 
-        send_message(chat_id, "Спасибо! Доступ открыт")
-        send_message(chat_id, "https://t.me/+YIBGmH8XuzVjNzJi")
+        keyboard = {
+            "inline_keyboard": [
+                [{
+                    "text": "Вступить в канал",
+                    "url": "https://t.me/+YIBGmH8XuzVjNzJi"
+                }]
+            ]
+        }
+
+requests.post(f"{URL}/sendMessage", json={
+    "chat_id": chat_id,
+    "text": "Спасибо! Доступ к каналу открыт",
+    "reply_markup": keyboard
+})
         users[chat_id]["step"] = "done"
 
     return "ok"
