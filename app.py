@@ -102,7 +102,7 @@ def webhook():
         print(user)
 
         send_message(chat_id, "Спасибо! Доступ открыт")
-
+        send_message(chat_id, "https://t.me/+YIBGmH8XuzVjNzJi")
         users[chat_id]["step"] = "done"
 
     return "ok"
