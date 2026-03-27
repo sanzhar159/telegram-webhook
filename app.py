@@ -1,22 +1,41 @@
+
 from flask import Flask, request
 import requests
 import os
 import json
 
-
+# =========================
+# TELEGRAM
+# =========================
 #АПИ бота
 TOKEN = "7805213873:AAEL0F__2PFPyh21q9eYRxrzBPBsg-WPRIM"
 #ссылка на канал
 CHANNEL_URL = "https://t.me/+YIBGmH8XuzVjNzJi"
+TG_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-URL = f"https://api.telegram.org/bot{TOKEN}"
+# =========================
+# AMOCRM
+# =========================
+SUBDOMAIN = "sugraliev"
+ACCESS_TOKEN = "ВСТАВЬ_ACCESS_TOKEN"
+BASE_AMO_URL = f"https://{SUBDOMAIN}.amocrm.ru"
+
+PIPELINE_ID = 10718634
+STATUS_ID = 84442662
+
+CF_AGE = 3799405
+CF_PROBLEM = 3799407
+CF_SOURCE = 3799409
+
 app = Flask(__name__)
 
-# Временное хранилище состояний пользователей.
-# Для старта подходит. Позже можно вынести в базу.
+# Временное хранение состояний пользователей
 users = {}
 
 
+# =========================
+# TELEGRAM HELPERS
+# =========================
 def send_message(chat_id, text, reply_markup=None):
     payload = {
         "chat_id": chat_id,
@@ -25,7 +44,7 @@ def send_message(chat_id, text, reply_markup=None):
     if reply_markup:
         payload["reply_markup"] = reply_markup
 
-    response = requests.post(f"{URL}/sendMessage", json=payload, timeout=15)
+    response = requests.post(f"{TG_URL}/sendMessage", json=payload, timeout=20)
     return response.json()
 
 
@@ -43,7 +62,7 @@ def send_channel_button(chat_id):
 
     send_message(
         chat_id,
-        "Спасибо! Доступ почти готов.\n\nНажмите кнопку ниже, чтобы перейти в канал:",
+        "Спасибо! Заявка принята.\n\nНажмите кнопку ниже, чтобы перейти в канал.",
         reply_markup=keyboard
     )
 
@@ -51,10 +70,10 @@ def send_channel_button(chat_id):
 def age_keyboard():
     return {
         "keyboard": [
-            ["до 1 года"],
-            ["1-2 года"],
-            ["2-3 года"],
-            ["3+"]
+            ["1"],
+            ["2"],
+            ["3"],
+            ["4"]
         ],
         "resize_keyboard": True,
         "one_time_keyboard": True
@@ -95,6 +114,80 @@ def remove_keyboard():
     }
 
 
+# =========================
+# AMOCRM HELPERS
+# =========================
+def amo_headers():
+    return {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+
+def create_amo_lead(user):
+    url = f"{BASE_AMO_URL}/api/v4/leads/complex"
+
+    payload = [
+        {
+            "name": f"Telegram | {user['name']}",
+            "pipeline_id": PIPELINE_ID,
+            "status_id": STATUS_ID,
+            "_embedded": {
+                "contacts": [
+                    {
+                        "first_name": user["name"],
+                        "custom_fields_values": [
+                            {
+                                "field_code": "PHONE",
+                                "values": [
+                                    {
+                                        "value": user["phone"],
+                                        "enum_code": "WORK"
+                                    }
+                                ]
+                            },
+                            {
+                                "field_id": CF_AGE,
+                                "values": [
+                                    {
+                                        "value": int(user["age"])
+                                    }
+                                ]
+                            },
+                            {
+                                "field_id": CF_PROBLEM,
+                                "values": [
+                                    {
+                                        "value": user["problem"]
+                                    }
+                                ]
+                            },
+                            {
+                                "field_id": CF_SOURCE,
+                                "values": [
+                                    {
+                                        "value": "Telegram бот"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+
+    r = requests.post(url, headers=amo_headers(), json=payload, timeout=25)
+
+    print("=== AMO RESPONSE STATUS ===")
+    print(r.status_code)
+    print("=== AMO RESPONSE TEXT ===")
+    print(r.text)
+
+    r.raise_for_status()
+    return r.json()
+
+
 def log_lead(chat_id):
     user = users.get(chat_id, {})
     print("========== НОВЫЙ ЛИД ==========")
@@ -108,6 +201,9 @@ def log_lead(chat_id):
     print("================================")
 
 
+# =========================
+# ROUTES
+# =========================
 @app.route("/", methods=["GET"])
 def home():
     return "bot working", 200
@@ -121,10 +217,7 @@ def webhook():
     print(json.dumps(data, ensure_ascii=False, indent=2))
     print("=========================")
 
-    if not data:
-        return "ok", 200
-
-    if "message" not in data:
+    if not data or "message" not in data:
         return "ok", 200
 
     message = data["message"]
@@ -134,7 +227,6 @@ def webhook():
     if chat_id not in users:
         users[chat_id] = {"step": "name"}
 
-    # старт
     if text == "/start":
         users[chat_id] = {"step": "name"}
         send_message(
@@ -146,7 +238,6 @@ def webhook():
 
     current_step = users[chat_id].get("step")
 
-    # шаг 1: имя
     if current_step == "name":
         if not text:
             send_message(chat_id, "Напишите, пожалуйста, ваше имя.")
@@ -157,18 +248,17 @@ def webhook():
 
         send_message(
             chat_id,
-            "Возраст ребёнка?",
+            "Сколько лет ребенку? Выберите число кнопкой ниже.",
             reply_markup=age_keyboard()
         )
         return "ok", 200
 
-    # шаг 2: возраст
     if current_step == "age":
-        allowed_ages = {"до 1 года", "1-2 года", "2-3 года", "3+"}
+        allowed_ages = {"1", "2", "3", "4"}
         if text not in allowed_ages:
             send_message(
                 chat_id,
-                "Выберите возраст ребёнка кнопкой ниже.",
+                "Выберите возраст кнопкой ниже.",
                 reply_markup=age_keyboard()
             )
             return "ok", 200
@@ -183,7 +273,6 @@ def webhook():
         )
         return "ok", 200
 
-    # шаг 3: проблема
     if current_step == "problem":
         allowed_problems = {"не говорит", "мало слов", "не понимает", "хочу развитие"}
         if text not in allowed_problems:
@@ -204,7 +293,6 @@ def webhook():
         )
         return "ok", 200
 
-    # шаг 4: телефон
     if current_step == "phone":
         if "contact" in message:
             phone = message["contact"].get("phone_number", "")
@@ -213,12 +301,22 @@ def webhook():
 
             log_lead(chat_id)
 
-            send_message(
-                chat_id,
-                "Спасибо! Анкета заполнена.",
-                reply_markup=remove_keyboard()
-            )
-            send_channel_button(chat_id)
+            try:
+                create_amo_lead(users[chat_id])
+                send_message(
+                    chat_id,
+                    "Спасибо! Анкета заполнена.",
+                    reply_markup=remove_keyboard()
+                )
+                send_channel_button(chat_id)
+            except Exception as e:
+                print("AMOCRM ERROR:", str(e))
+                send_message(
+                    chat_id,
+                    "Анкета принята, но произошла ошибка при передаче данных. Напишите администратору.",
+                    reply_markup=remove_keyboard()
+                )
+
             return "ok", 200
 
         send_message(
@@ -228,7 +326,6 @@ def webhook():
         )
         return "ok", 200
 
-    # если уже всё заполнено
     if users[chat_id].get("step") == "done":
         send_channel_button(chat_id)
         return "ok", 200
