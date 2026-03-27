@@ -1,4 +1,3 @@
-
 from flask import Flask, request
 import requests
 import os
@@ -7,6 +6,7 @@ import json
 # =========================
 # TELEGRAM
 # =========================
+
 #АПИ бота
 TOKEN = "7805213873:AAEL0F__2PFPyh21q9eYRxrzBPBsg-WPRIM"
 #ссылка на канал
@@ -23,13 +23,11 @@ BASE_AMO_URL = f"https://{SUBDOMAIN}.amocrm.ru"
 PIPELINE_ID = 10718634
 STATUS_ID = 84442662
 
-CF_AGE = 3799405
+CF_AGE = 32836082
 CF_PROBLEM = 3799407
 CF_SOURCE = 3799409
 
 app = Flask(__name__)
-
-# Временное хранение состояний пользователей
 users = {}
 
 
@@ -45,6 +43,7 @@ def send_message(chat_id, text, reply_markup=None):
         payload["reply_markup"] = reply_markup
 
     response = requests.post(f"{TG_URL}/sendMessage", json=payload, timeout=20)
+    print("TG SEND:", response.status_code, response.text)
     return response.json()
 
 
@@ -70,10 +69,10 @@ def send_channel_button(chat_id):
 def age_keyboard():
     return {
         "keyboard": [
-            ["1"],
-            ["2"],
-            ["3"],
-            ["4"]
+            ["до 1 года"],
+            ["1-2 года"],
+            ["2-3 года"],
+            ["3+"]
         ],
         "resize_keyboard": True,
         "one_time_keyboard": True
@@ -150,7 +149,7 @@ def create_amo_lead(user):
                                 "field_id": CF_AGE,
                                 "values": [
                                     {
-                                        "value": int(user["age"])
+                                        "value": user["age"]
                                     }
                                 ]
                             },
@@ -177,15 +176,11 @@ def create_amo_lead(user):
         }
     ]
 
-    r = requests.post(url, headers=amo_headers(), json=payload, timeout=25)
-
-    print("=== AMO RESPONSE STATUS ===")
-    print(r.status_code)
-    print("=== AMO RESPONSE TEXT ===")
-    print(r.text)
-
-    r.raise_for_status()
-    return r.json()
+    response = requests.post(url, headers=amo_headers(), json=payload, timeout=25)
+    print("AMO STATUS:", response.status_code)
+    print("AMO RESPONSE:", response.text)
+    response.raise_for_status()
+    return response.json()
 
 
 def log_lead(chat_id):
@@ -248,13 +243,13 @@ def webhook():
 
         send_message(
             chat_id,
-            "Сколько лет ребенку? Выберите число кнопкой ниже.",
+            "Сколько лет ребенку?",
             reply_markup=age_keyboard()
         )
         return "ok", 200
 
     if current_step == "age":
-        allowed_ages = {"1", "2", "3", "4"}
+        allowed_ages = {"до 1 года", "1-2 года", "2-3 года", "3+"}
         if text not in allowed_ages:
             send_message(
                 chat_id,
