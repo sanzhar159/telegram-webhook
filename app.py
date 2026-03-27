@@ -2,7 +2,7 @@ from flask import Flask, request
 import requests
 import os
 
-TOKEN = "ТВОЙ_ТОКЕН"
+TOKEN = "7805213873:AAEL0F__2PFPyh21q9eYRxrzBPBsg-WPRIM"
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
